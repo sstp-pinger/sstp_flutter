@@ -13,6 +13,7 @@ typedef OnConnected = Function(ConnectionTraffic traffic, Duration duration);
 typedef OnConnecting = void Function();
 typedef OnDisconnected = void Function();
 typedef OnError = Function();
+typedef OnNotificationDisconnect = void Function();
 
 class SstpFlutter {
   Timer? _timer;
@@ -27,19 +28,27 @@ class SstpFlutter {
   /// Gains result of current connection status
   /// [OnConnected] get invoked when [ConnectionTraffic] get updates
   ///
+  /// [onNotificationDisconnect], Android only, fires when the user taps
+  /// Disconnect on the VPN's own foreground-service notification, just before
+  /// the matching [onDisconnectedResult] — so callers can tell that
+  /// disconnect apart from an app-initiated one or a dropped connection.
+  ///
   /// NOTE: download and upload speed is under development on iOS
   Future onResult({
     OnConnected? onConnectedResult,
     OnConnecting? onConnectingResult,
     OnDisconnected? onDisconnectedResult,
     OnError? onError,
+    OnNotificationDisconnect? onNotificationDisconnect,
   }) async {
     this.onConnectedResult = onConnectedResult;
 
     Future methodCallReceiver(MethodCall call) async {
       var arg = call.arguments;
 
-      if (call.method == 'connectResponse') {
+      if (call.method == 'onNotificationDisconnect') {
+        onNotificationDisconnect?.call();
+      } else if (call.method == 'connectResponse') {
         if (arg["status"] == SSTPConnectionStatusKeys.CONNECTED) {
           _timer = Timer.periodic(
             const Duration(seconds: 1),

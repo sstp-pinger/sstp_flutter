@@ -67,6 +67,13 @@ internal class SstpVpnService : VpnService() {
 
     private var jobReconnect: Job? = null
 
+    // Live bandwidth shown in the foreground notification; refreshed at most
+    // once a second (updateSpeed can be called once per packet).
+    private var notificationBuilder: NotificationCompat.Builder? = null
+    private var currentDownloadKbps: Double = 0.0
+    private var currentUploadKbps: Double = 0.0
+    private var lastNotificationUpdateMs: Long = 0L
+
     private fun setRootState(state: Boolean) {
         setBooleanPrefValue(state, OscPrefKey.ROOT_STATE, prefs)
     }
@@ -148,6 +155,10 @@ internal class SstpVpnService : VpnService() {
                 controlClient = null
 
                 close()
+
+                if (intent?.getBooleanExtra("notificationDisconnect", false) == true) {
+                    FlutterCaller().notificationDisconnect()
+                }
 
                 val tempMap : HashMap<String,Any>  = HashMap()
                 connectionStatus = OscPrefKey.Disconnected.name
@@ -237,30 +248,66 @@ internal class SstpVpnService : VpnService() {
         val pendingIntent = PendingIntent.getService(
             this,
             0,
-            Intent(this, SstpVpnService::class.java).setAction(ACTION_VPN_DISCONNECT).putExtra("manuallyDisconnected",true),
+            Intent(this, SstpVpnService::class.java)
+                .setAction(ACTION_VPN_DISCONNECT)
+                .putExtra("manuallyDisconnected", true)
+                .putExtra("notificationDisconnect", true),
             PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
         )
-        val notificationText = prefs.getString(OscPrefKey.NotificationText.name,"")
+        val notificationText = prefs.getString(OscPrefKey.NotificationText.name,"") ?: ""
         val showNotification = prefs.getBoolean(OscPrefKey.NOTIFICATION_DO_SHOW_DISCONNECT.name,false)
-        println("notificationText : $notificationText")
-        println("showNotification : $showNotification")
 
-
+        currentDownloadKbps = 0.0
+        currentUploadKbps = 0.0
+        lastNotificationUpdateMs = 0L
 
         val builder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_NAME).also {
             it.priority = NotificationCompat.PRIORITY_DEFAULT
-            it.setAutoCancel(true)
+            it.setOngoing(true)
             it.setSmallIcon(R.drawable.baseline_vpn_key_24)
             it.setContentTitle(notificationText)
+            it.setContentText(speedText(0.0, 0.0))
             if(showNotification){
                 it.addAction(0, "DISCONNECT", pendingIntent)
             }
         }
+        notificationBuilder = builder
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_DISCONNECT_ID, builder.build(), 1)
         } else {
             startForeground(NOTIFICATION_DISCONNECT_ID, builder.build())
         }
+    }
+
+    /// Formats current speeds like "↓ 1.2 MB/s  ↑ 128 KB/s", matching the
+    /// units/spirit of the app-side notification this replaces.
+    private fun speedText(downloadKbps: Double, uploadKbps: Double): String {
+        fun format(kbps: Double): String {
+            val bytesPerSec = kbps * 1000.0 / 8.0
+            return if (bytesPerSec >= 1024 * 1024) {
+                String.format(Locale.getDefault(), "%.1f MB/s", bytesPerSec / (1024 * 1024))
+            } else if (bytesPerSec >= 1024) {
+                String.format(Locale.getDefault(), "%.1f KB/s", bytesPerSec / 1024)
+            } else {
+                String.format(Locale.getDefault(), "%.0f B/s", bytesPerSec)
+            }
+        }
+        return "↓ ${format(downloadKbps)}   ↑ ${format(uploadKbps)}"
+    }
+
+    /// Called from [IPTerminal] on every packet; throttled to refresh the
+    /// notification at most once a second to avoid hammering the system.
+    internal fun updateTrafficSpeed(downloadKbps: Double, uploadKbps: Double) {
+        currentDownloadKbps = downloadKbps
+        currentUploadKbps = uploadKbps
+
+        val now = System.currentTimeMillis()
+        if (now - lastNotificationUpdateMs < 1000) return
+        lastNotificationUpdateMs = now
+
+        val builder = notificationBuilder ?: return
+        builder.setContentText(speedText(currentDownloadKbps, currentUploadKbps))
+        notificationManager.notify(NOTIFICATION_DISCONNECT_ID, builder.build())
     }
 
     internal fun makeNotification(id: Int, message: String) {
@@ -275,6 +322,7 @@ internal class SstpVpnService : VpnService() {
 
     internal fun close() {
         connectionStatus = OscPrefKey.Disconnected.name
+        notificationBuilder = null
         stopForeground(true)
         stopSelf()
     }

@@ -38,4 +38,12 @@ fun connect(){
 
     }
 
+    /// Sent just before the matching `connectResponse` (disconnected), so Dart
+    /// can tag that report as user-initiated via the notification rather than
+    /// a dropped connection. Called from `onStartCommand`, already on the main
+    /// thread, so no dispatch is needed.
+    fun notificationDisconnect(){
+        flutterChannel.invokeMethod("onNotificationDisconnect", null)
+    }
+
 }

@@ -35,6 +35,11 @@ internal class IPTerminal(private val bridge: ClientBridge) {
     private var totalDownload = 0;
     private var totalUpload = 0;
 
+    // Last measured speed in each direction, kept so a notification update
+    // triggered by one direction still shows the other's latest value.
+    private var lastDownloadSpeedKb = 0.0
+    private var lastUploadSpeedKb = 0.0
+
     // DNS servers registered via addDnsServer, tracked so setIPv4BasedRouting
     // can punch a route back in for any that land inside an excluded RFC1918
     // range (see the comment there).
@@ -44,6 +49,8 @@ internal class IPTerminal(private val bridge: ClientBridge) {
     internal suspend fun initialize() {
         totalDownload = 0;
         totalUpload = 0;
+        lastDownloadSpeedKb = 0.0
+        lastUploadSpeedKb = 0.0
         if (bridge.PPP_IPv4_ENABLED) {
             if (bridge.currentIPv4.isSame(ByteArray(4))) {
                 bridge.controlMailbox.send(ControlMessage(Where.IPv4, Result.ERR_INVALID_ADDRESS))
@@ -235,12 +242,16 @@ internal class IPTerminal(private val bridge: ClientBridge) {
         val roundedDownloadSpeed = String.format("%.2f", downloadSpeedKb)
         totalDownload += bytes
         FlutterCaller().DownloadSpeed(bytes * 8, totalDownload * 8)
+        bridge.service.updateTrafficSpeed(downloadSpeedKb, lastUploadSpeedKb)
+        lastDownloadSpeedKb = downloadSpeedKb
     }
 
     private suspend fun logUploadSpeed(uploadSpeedKb: Double, bytes: Int) {
         val roundedUploadSpeed = String.format("%.2f", uploadSpeedKb)
         totalUpload += bytes
         FlutterCaller().UploadSpeed(bytes * 8, totalUpload * 8)
+        bridge.service.updateTrafficSpeed(lastDownloadSpeedKb, uploadSpeedKb)
+        lastUploadSpeedKb = uploadSpeedKb
     }
 
 
