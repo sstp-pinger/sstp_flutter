@@ -35,6 +35,11 @@ internal class IPTerminal(private val bridge: ClientBridge) {
     private var totalDownload = 0;
     private var totalUpload = 0;
 
+    // DNS servers registered via addDnsServer, tracked so setIPv4BasedRouting
+    // can punch a route back in for any that land inside an excluded RFC1918
+    // range (see the comment there).
+    private val dnsServers = mutableListOf<InetAddress>()
+
     @SuppressLint("NewApi")
     internal suspend fun initialize() {
         totalDownload = 0;
@@ -50,12 +55,15 @@ internal class IPTerminal(private val bridge: ClientBridge) {
             }
 
             if (isCustomDNSServerUsed) {
-                bridge.builder.addDnsServer(getStringPrefValue(OscPrefKey.DNS_CUSTOM_ADDRESS, bridge.prefs))
+                val customDNS = getStringPrefValue(OscPrefKey.DNS_CUSTOM_ADDRESS, bridge.prefs)
+                bridge.builder.addDnsServer(customDNS)
+                dnsServers.add(InetAddress.getByName(customDNS))
             }
 
             if (!bridge.currentProposedDNS.isSame(ByteArray(4))) {
                 InetAddress.getByAddress(bridge.currentProposedDNS).also {
                     bridge.builder.addDnsServer(it)
+                    dnsServers.add(it)
                 }
             }
 
@@ -109,11 +117,28 @@ internal class IPTerminal(private val bridge: ClientBridge) {
             // API 33+; on older devices the proxy return path stays broken.
             if (!isPrivateAddressesRouted &&
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                listOf(
+                val excludedPrivateRanges = listOf(
                     IpPrefix(InetAddress.getByName("192.168.0.0"), 16),
                     IpPrefix(InetAddress.getByName("172.16.0.0"), 12),
                     IpPrefix(InetAddress.getByName("10.0.0.0"), 8),
-                ).forEach { bridge.builder.excludeRoute(it) }
+                )
+                excludedPrivateRanges.forEach { bridge.builder.excludeRoute(it) }
+
+                // The VPN's own DNS server can itself sit inside one of the
+                // ranges just excluded (VPN Gate servers commonly hand out a
+                // private 10.x resolver) — without a more specific route back
+                // in, DNS queries go out the physical interface instead of the
+                // tunnel, where that address isn't reachable, silently
+                // breaking all resolution even though the tunnel and its
+                // 0.0.0.0/0 default route are otherwise fine. A /32 addRoute
+                // wins over the broader excludeRoute (longest-prefix match),
+                // punching just the resolver back into the tunnel while LAN
+                // traffic stays excluded.
+                dnsServers.forEach { dns ->
+                    if (excludedPrivateRanges.any { it.contains(dns) }) {
+                        bridge.builder.addRoute(dns, 32)
+                    }
+                }
             }
         }
 
