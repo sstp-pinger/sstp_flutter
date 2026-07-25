@@ -50,7 +50,10 @@ import java.util.Locale
 internal const val ACTION_VPN_CONNECT = "com.example.sstp_flutter.connect"
 internal const val ACTION_VPN_DISCONNECT = "com.example.sstp_flutter.disconnect"
 
-internal const val NOTIFICATION_CHANNEL_NAME = "com.example.sstp_flutter.notification.channel"
+// Bumped to "_v2" so existing installs get a fresh channel with the fixed
+// (low-importance, silent) settings below — Android freezes a channel's
+// importance/sound at first creation and never re-applies code changes to it.
+internal const val NOTIFICATION_CHANNEL_NAME = "com.example.sstp_flutter.notification.channel_v2"
 
 internal const val NOTIFICATION_ERROR_ID = 1
 internal const val NOTIFICATION_RECONNECT_ID = 2
@@ -239,8 +242,10 @@ internal class SstpVpnService : VpnService() {
             NotificationChannel(
                 NOTIFICATION_CHANNEL_NAME,
                 NOTIFICATION_CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_DEFAULT
+                NotificationManager.IMPORTANCE_LOW
             ).also {
+                it.setSound(null, null)
+                it.enableVibration(false)
                 notificationManager.createNotificationChannel(it)
             }
         }
@@ -262,7 +267,8 @@ internal class SstpVpnService : VpnService() {
         lastNotificationUpdateMs = 0L
 
         val builder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_NAME).also {
-            it.priority = NotificationCompat.PRIORITY_DEFAULT
+            it.priority = NotificationCompat.PRIORITY_LOW
+            it.setOnlyAlertOnce(true)
             it.setOngoing(true)
             it.setSmallIcon(R.drawable.baseline_vpn_key_24)
             it.setContentTitle(notificationText)
