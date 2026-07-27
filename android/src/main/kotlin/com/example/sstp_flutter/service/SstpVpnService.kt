@@ -270,7 +270,7 @@ internal class SstpVpnService : VpnService() {
             it.priority = NotificationCompat.PRIORITY_LOW
             it.setOnlyAlertOnce(true)
             it.setOngoing(true)
-            it.setSmallIcon(R.drawable.baseline_vpn_key_24)
+            it.setSmallIcon(R.drawable.ic_notification_shield)
             it.setContentTitle(notificationText)
             it.setContentText(speedText(0.0, 0.0))
             if(showNotification){
