@@ -336,14 +336,16 @@ class SstpFlutterPlugin: FlutterPlugin, MethodCallHandler , ActivityAware, Flutt
   }
 
   override fun onDetachedFromActivityForConfigChanges() {
-    TODO("Not yet implemented")
+    // No cleanup needed here — onReattachedToActivityForConfigChanges refreshes
+    // activityBinding right after this fires (e.g. on rotation).
   }
 
   override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
-    TODO("Not yet implemented")
+    activityBinding = binding
   }
 
   override fun onDetachedFromActivity() {
-    TODO("Not yet implemented")
+    // Activity is gone for good (not just a config change). activityBinding
+    // is stale until onAttachedToActivity fires again on next launch.
   }
 }
