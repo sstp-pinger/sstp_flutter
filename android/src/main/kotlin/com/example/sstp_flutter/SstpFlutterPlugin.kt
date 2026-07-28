@@ -44,7 +44,7 @@ var assignedIp = ""
 /** SstpFlutterPlugin by Navid Shokoufeh*/
 class SstpFlutterPlugin: FlutterPlugin, MethodCallHandler , ActivityAware, FlutterFragmentActivity() {
   var activityResultListener: PluginRegistry.ActivityResultListener? = null
-  private lateinit var activityBinding: ActivityPluginBinding
+  private var activityBinding: ActivityPluginBinding? = null
   private lateinit var channel : MethodChannel
   lateinit var prefs : SharedPreferences
   lateinit var context : Context
@@ -83,19 +83,24 @@ class SstpFlutterPlugin: FlutterPlugin, MethodCallHandler , ActivityAware, Flutt
     tempResult = result
     when {
       call.method.equals("takePermission") -> {
-        val intent = VpnService.prepare(activityBinding.activity.applicationContext)
+        val binding = activityBinding
+        if (binding == null) {
+          result.error("NO_ACTIVITY", "Plugin is not attached to an activity", null)
+        } else {
+          val intent = VpnService.prepare(binding.activity.applicationContext)
 
-        if(intent != null){
+          if(intent != null){
 
-          activityResultListener = PluginRegistry.ActivityResultListener { req, res, _ ->
-            result.success(req == 0 && res == RESULT_OK)
-            activityResultListener?.let { activityBinding.removeActivityResultListener(it) }
-            true
+            activityResultListener = PluginRegistry.ActivityResultListener { req, res, _ ->
+              result.success(req == 0 && res == RESULT_OK)
+              activityResultListener?.let { binding.removeActivityResultListener(it) }
+              true
+            }
+            binding.addActivityResultListener(activityResultListener!!)
+            binding.activity.startActivityForResult(intent, 0)
+          }else{
+            result.success(true)
           }
-          activityBinding.addActivityResultListener(activityResultListener!!)
-          activityBinding.activity.startActivityForResult(intent, 0)
-        }else{
-          result.success(true)
         }
       }
 
@@ -209,11 +214,13 @@ class SstpFlutterPlugin: FlutterPlugin, MethodCallHandler , ActivityAware, Flutt
   }
 
   fun addTrustedCertificate(): String {
+    val binding = activityBinding
+      ?: return getURIPrefValue(OscPrefKey.SSL_CERT_DIR, prefs).toString()
 
     Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).also { intent ->
       intent.flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-      activityBinding.addActivityResultListener(certDirLauncher)
-      activityBinding.activity.startActivityForResult(intent, 0).also {
+      binding.addActivityResultListener(certDirLauncher)
+      binding.activity.startActivityForResult(intent, 0).also {
         return getURIPrefValue(OscPrefKey.SSL_CERT_DIR, prefs).toString()
       }
     }
@@ -336,8 +343,7 @@ class SstpFlutterPlugin: FlutterPlugin, MethodCallHandler , ActivityAware, Flutt
   }
 
   override fun onDetachedFromActivityForConfigChanges() {
-    // No cleanup needed here — onReattachedToActivityForConfigChanges refreshes
-    // activityBinding right after this fires (e.g. on rotation).
+    activityBinding = null
   }
 
   override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
@@ -345,7 +351,7 @@ class SstpFlutterPlugin: FlutterPlugin, MethodCallHandler , ActivityAware, Flutt
   }
 
   override fun onDetachedFromActivity() {
-    // Activity is gone for good (not just a config change). activityBinding
-    // is stale until onAttachedToActivity fires again on next launch.
+    activityResultListener?.let { activityBinding?.removeActivityResultListener(it) }
+    activityBinding = null
   }
 }
